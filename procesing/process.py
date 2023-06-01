@@ -1,6 +1,6 @@
 import numpy as np
 import math
-
+import cv2 as cv,cv2
 def perform_processing(image: np.ndarray) -> str:
     print(f'image.shape: {image.shape}')
     # TODO: add image processing here
@@ -39,3 +39,167 @@ def rect_distance(rect1,rect2):
         return y2 - y1b
     else:             # rectangles intersect
         return 0.
+    
+def simplify_contour(contour, n_corners=4):
+    '''
+    Binary searches best `epsilon` value to force contour 
+        approximation contain exactly `n_corners` points.
+
+    :param contour: OpenCV2 contour.
+    :param n_corners: Number of corners (points) the contour must contain.
+
+    :returns: Simplified contour in successful case. Otherwise returns initial contour.
+    '''
+    n_iter, max_iter = 0, 1000
+    lb, ub = 0., 1.
+    k=0.5
+    arc_dif=np.inf
+    while True:
+        n_iter += 1
+        if n_iter > max_iter:
+            return contour
+        arc_len=cv2.arcLength(contour, True)
+        prev_k=k
+        k = (lb + ub)/2.
+        eps = k*arc_len
+        approx = cv2.approxPolyDP(contour, eps, True)
+        prev_arc=arc_dif
+        arc_dif=abs(arc_len-cv2.arcLength(approx, True))
+        print(k)
+        if len(approx) > n_corners:
+            lb = (lb + ub)/2.
+        elif len(approx) < n_corners:
+            ub = (lb + ub)/2.
+        else:
+            return approx
+def naive_simplify_contour(contour, n_corners=4):
+    '''
+    Binary searches best `epsilon` value to force contour 
+        approximation contain exactly `n_corners` points.
+
+    :param contour: OpenCV2 contour.
+    :param n_corners: Number of corners (points) the contour must contain.
+
+    :returns: Simplified contour in successful case. Otherwise returns initial contour.
+    '''
+    n_iter, max_iter = 0, 1000
+    
+    lb, ub = 0., 1.
+    k=0.5
+    arc_dif=np.inf
+    prev_arc_dif=np.inf
+    best_k=0
+    arc_len=cv2.arcLength(contour, True)
+    for k in np.linspace(1,0,max_iter):
+        eps = k*arc_len
+        approx = cv2.approxPolyDP(contour, eps, True)
+        prev_arc_dif=arc_dif
+        arc_dif=abs(arc_len-cv2.arcLength(approx, True))
+        if arc_dif< prev_arc_dif and len(approx)==n_corners:
+            best_k=k
+            prev_arc_dif=arc_dif
+    return cv2.approxPolyDP(contour, best_k*arc_len, True)
+
+def calcParams(p1,p2): #// line's equation Params computation
+    if (p2[1] - p1[1] == 0):
+        a = 0.0
+        b = -1.0
+    elif (p2[0] - p1[0] == 0):
+        a = -1.0
+        b = 0.0
+    else:
+        a = (p2[1] - p1[1]) / (p2[0] - p1[0])
+        b = -1.0
+
+    c = (-a * p1[0]) - b * p1[1]
+    return (a, b, c)
+
+def findIntersection(params1,params2):
+    x , y = -1,-1
+    det = params1[0] * params2[1] - params2[0] * params1[1]
+    if (det < 0.5 and det > -0.5): # lines are approximately parallel
+        return (-1, -1)
+    else:
+        x = (params2[1] * -params1[2] - params1[1] * -params2[2]) / det
+        y = (params1[0] * -params2[2] - params2[0] * -params1[2]) / det
+    return (int(x), int(y))
+
+
+def getQuadrilateral(cnt,plate,low1,low2,low3): 
+    mask = np.zeros(plate.shape,np.uint8)
+    hull=cv2.convexHull(cnt)
+    mask=cv.drawContours(mask, [hull], 0, 255)
+    cv2.imshow('mask',mask)
+    lines=cv.HoughLinesP(mask, 1, np.pi / 180, 25, minLineLength=50, maxLineGap=50)
+    #lines=cv.HoughLinesP(mask, 1, np.pi / 180, low1, minLineLength=low2, maxLineGap=low3)
+    cdst = cv.cvtColor(plate.copy(), cv.COLOR_GRAY2BGR)
+    cdst2=cdst.copy()
+    if lines is not None:
+        for i in range(0, len(lines)):
+            l = lines[i][0]
+            cv.line(cdst2, (l[0], l[1]), (l[2], l[3]), (255,0,255), 3, cv.LINE_AA)
+        cv.imshow('all',cdst2)
+    if lines is not None and len(lines)>4:
+        first_slope=None
+        offsets=[]
+        hor_lines=[]
+        ver_lines=[]
+        params=[]
+        for i in range(0, len(lines)):
+            l = lines[i][0]
+            slope=math.degrees(math.atan2(abs(l[1]-l[3]),abs(l[0]-l[2])))
+            print(slope)
+            if abs(slope)<45.0:
+                hor_lines.append(l)
+            else:
+                ver_lines.append(l)
+        first_vert=None
+        second_vert=None
+        first_hor=None
+        second_hor=None
+        for l in ver_lines:
+            if first_vert is None and l[0]<plate.shape[1]/2:
+                first_vert=l
+            if second_vert is None and l[0]>plate.shape[1]/2:
+                second_vert=l
+        for l in hor_lines:
+            if first_hor is None and l[1]<plate.shape[0]/2:
+                first_hor=l
+            if second_hor is None and l[1]>plate.shape[0]/2:
+                second_hor=l
+        # for line in hor_lines:
+        #     cv.line(cdst, (line[0], line[1]), (line[2], line[3]), (0,0,255), 3, cv.LINE_AA)
+        # for line in ver_lines:
+        #     cv.line(cdst, (line[0], line[1]), (line[2], line[3]), (0,255,0), 3, cv.LINE_AA)
+        lines=[]
+        if first_vert is not None and second_vert is not None and first_hor is not None and second_hor is not None:
+            cv.line(cdst, (first_vert[0], first_vert[1]), (first_vert[2], first_vert[3]), (255,0,255), 3, cv.LINE_AA)
+            cv.line(cdst, (second_vert[0], second_vert[1]), (second_vert[2], second_vert[3]), (0,255,0), 3, cv.LINE_AA)
+            cv.line(cdst, (first_hor[0], first_hor[1]), (first_hor[2], first_hor[3]), (0,0,255), 3, cv.LINE_AA)
+            cv.line(cdst, (second_hor[0], second_hor[1]), (second_hor[2], second_hor[3]), (255,0,0), 3, cv.LINE_AA)
+            # for i in range(0, len(lines)):
+            #     l = lines[i][0]
+            #     cv.line(cdst, (l[0], l[1]), (l[2], l[3]), (0,0,255), 3, cv.LINE_AA)
+            lines=[first_vert,second_hor,second_vert,first_hor]
+    #print("####################################")
+    #print(lines)
+        params=[]
+        if (len(lines) == 4): # we found the 4 sides
+            params=[]
+            for i in range(4):
+                l = lines[i]
+                params.append(calcParams((l[0], l[1]), (l[2], l[3])))
+            corners=[]
+            for i in range(len(params)):
+                for j in range(i,len(params)): #// j starts at i so we don't have duplicated points
+                    intersec = findIntersection(params[i], params[j])
+                    if (intersec[0] > 0) and (intersec[1] > 0): #and (intersec.x < grayscale.cols) and (intersec.y < grayscale.rows):
+                        corners.append(intersec)
+
+            for i in range(len(corners)):
+                cv.circle(cdst, corners[i], 3, (0, 255, 255))
+            cv2.imshow('lines',cdst)
+            print(corners)
+            if len(corners) == 4 :#// we have the 4 final corners
+                return(corners)
+    
