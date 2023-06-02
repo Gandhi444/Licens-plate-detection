@@ -144,6 +144,7 @@ while True:
                 best_dist=dist
                 best_fit=i
         x,y,w,h = cv2.boundingRect(candidates[best_fit]) 
+        plate_position=(x,y,w,h)
         plate=grey_images[nr].copy()[y:y+h,x:x+w]
         plate_color=color_imgs[nr].copy()[y:y+h,x:x+w]
         #cv2.imshow('plate',plate)
@@ -189,11 +190,97 @@ while True:
         # peri = cv2.arcLength(exact_plate, True)
         # approx = cv2.approxPolyDP(exact_plate, 0.05*peri, True)
         #approx=naive_simplify_contour(exact_plate,4)
-        corners=getQuadrilateral(exact_plate,plate,low1,low2,low3)
+        corners=getQuadrilateral(exact_plate,plate,shape,plate_position,low1,low2,low3)
         #print(corners)
-        #aproximation=plate_color.copy()
-        #cv2.drawContours(aproximation, [approx], -1, (0, 255, 0), 3)
-        #cv2.imshow('aprox', aproximation)
+        buf=False
+        for corner in corners:
+            #print(corner)
+            if corner is None:
+                buf= True
+            #print(buf)
+        if len(corners)==4 and not buf:
+            corners_translated=[]
+            for corner in corners:
+                corners_translated.append([corner[0]+plate_position[0],corner[1]+plate_position[1]])
+            #print('translated',corners_translated)
+            
+            sorted_corners = np.zeros((4, 2), dtype="float32")
+            # the top-left point will have the smallest sum, whereas
+            # the bottom-right point will have the largest sum
+            s = np.array(corners_translated).sum(axis=1)
+            sorted_corners[0] = corners_translated[np.argmin(s)]
+            sorted_corners[3] = corners_translated[np.argmax(s)]
+            # now, compute the difference between the points, the
+            # top-right point will have the smallest difference,
+            # whereas the bottom-left will have the largest difference
+            diff = np.diff(corners_translated, axis=1)
+            sorted_corners[1] = corners_translated[np.argmin(diff)]
+            sorted_corners[2] = corners_translated[np.argmax(diff)]
+
+            pts2 = np.float32([[0,0],[plate_position[2],0],[0,plate_position[3]],[plate_position[2],plate_position[3]]])
+            matrix = cv2.getPerspectiveTransform(sorted_corners, pts2)
+            result = cv2.warpPerspective(color_imgs[nr], matrix, (plate_position[2], plate_position[3]))
+            
+
+            circles_img=color_imgs[nr].copy()
+            for i in range(len(corners_translated)):
+                cv.circle(circles_img, corners_translated[i], 10, (0, 0, 255))
+            #cv2.imshow('circles',circles_img)
+
+            # result_hsv=cv.cvtColor(result,cv.COLOR_BGR2HSV)
+            # # result_hsv = cv2.inRange(result_hsv.copy(), (180,low1,low2), (180, high1+1, high2+1))
+            # # result_hsv=cv.cvtColor(result_hsv,cv.COLOR_HSV2BGR)
+            # lwr = np.array([0, 0, 0])
+            # upr = np.array([180, 255, low1])
+            # msk = cv2.inRange(result_hsv, lwr, upr)
+            # cv.imshow('hsv',result_hsv)
+           # res=cv.bitwise_and(msk,result_hsv)
+            lower= np.array([0,20,140])#100
+            upper= np.array([180,255,255])#120
+            hsv = cv2.cvtColor(result, cv2.COLOR_BGR2HSV)
+            mask = cv2.inRange(hsv,lower,upper)
+            result_gray=cv.cvtColor(result,cv.COLOR_BGR2GRAY)
+            result_gray[mask>0]=255
+            result_gray= cv2.blur(result_gray,(5,5))
+            result_gray = cv2.GaussianBlur(result_gray, (5, 5), 0)
+            #cv.imshow('test',result_gray)
+            thresh = cv2.adaptiveThreshold(result_gray, 255,
+                cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 45, 15)
+            _, labels = cv2.connectedComponents(thresh)
+            letters = np.zeros(thresh.shape, dtype="uint8")
+            total_pixels = result_gray.shape[0] * result_gray.shape[1]
+            lower = total_pixels // 80 #(low1+2) # heuristic param, can be fine tuned if necessary
+            upper = total_pixels // 15 #(low2+2)
+            for (i, label) in enumerate(np.unique(labels)):
+                # If this is the background label, ignore it
+                if label == 0:
+                    continue
+            
+                # Otherwise, construct the label mask to display only connected component
+                # for the current label
+                labelMask = np.zeros(thresh.shape, dtype="uint8")
+                labelMask[labels == label] = 255
+                numPixels = cv2.countNonZero(labelMask)
+            
+                # If the number of pixels in the component is between lower bound and upper bound, 
+                # add it to our mask
+                if numPixels > lower and numPixels < upper:
+                    letters = cv2.add(letters, labelMask)
+                cnts, _ = cv2.findContours(letters.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                cnts = sorted(cnts, key = cv2.contourArea, reverse = True)[:7]
+                boundingBoxes = [cv2.boundingRect(c) for c in cnts]
+                for box in boundingBoxes:
+                    x,y,w,h = box
+                    ratio=w/h
+                    if ratio>0.1 and ratio<0.9:
+                        cv2.rectangle(result, (x, y), (x + w, y + h), (255,0,0), 4)
+            cv2.imshow('gray_res',letters)
+            cv2.imshow('res',result)
+
+
+
+
+
     cv2.imshow('processed', plate_processed)
     
 

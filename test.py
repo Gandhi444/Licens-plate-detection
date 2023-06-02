@@ -20,12 +20,12 @@ cv2.createTrackbar('high3', 'processed', 0, 255, empty_callback)
 #input=cv.imread("colors.jpg",cv.IMREAD_COLOR)
 
 
-input=cv.imread("test.JPG",cv.IMREAD_COLOR)
-scale_percent = 20 # percent of original size
-width = int(input.shape[1] * scale_percent / 100)
-height = int(input.shape[0] * scale_percent / 100)
-dim = (width, height)
-input = cv.resize(input, dim, interpolation = cv.INTER_AREA)
+input=cv.imread("colors.jpg",cv.IMREAD_COLOR)
+# scale_percent = 20 # percent of original size
+# width = int(input.shape[1] * scale_percent / 100)
+# height = int(input.shape[0] * scale_percent / 100)
+# dim = (width, height)
+# input = cv.resize(input, dim, interpolation = cv.INTER_AREA)
 
 
 while True:
