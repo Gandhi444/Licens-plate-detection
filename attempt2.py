@@ -3,15 +3,16 @@ import json
 from pathlib import Path
 import cv2 as cv,cv2
 import procesing.process
-from procesing.process import empty_callback, rect_distance ,simplify_contour,naive_simplify_contour,getQuadrilateral
+from procesing.process import empty_callback, rect_distance ,getQuadrilateral,letter_clasification
 import numpy as np
 import os
-
+import math
 
 color_imgs=[]
 grey_images=[]
 folder_dir = "data/train"
 #folder_dir="checker/data"
+
 for images in os.listdir(folder_dir):
     # check if the image ends with png
     if (images.endswith(".jpg") or images.endswith(".JPG")):
@@ -25,15 +26,20 @@ for images in os.listdir(folder_dir):
         color_imgs.append(input)
         grey_images.append(input_gray)
 
-
+template_path="templates"
+templates=[]
+for images in os.listdir(template_path):
+    if images.endswith(".png"):
+        input=cv.imread(template_path+'/'+images,cv.IMREAD_GRAYSCALE)
+        templates.append((images[0],input))
 # resize image
-
+#print(templates[:][0])
 cv2.namedWindow('processed',)
 # cv2.createTrackbar('erosion', 'processed', 1, 20000, empty_callback)
 # cv2.createTrackbar('filtr', 'processed', 1, 200, empty_callback)
 # cv2.createTrackbar('low', 'processed', 1, 255, empty_callback)
 # cv2.createTrackbar('high', 'processed', 0, 255, empty_callback)
-cv2.createTrackbar('low1', 'processed', 0, 255, empty_callback)
+cv2.createTrackbar('low1', 'processed', 0, 6, empty_callback)
 cv2.createTrackbar('low2', 'processed', 0, 255, empty_callback)
 cv2.createTrackbar('low3', 'processed', 0, 255, empty_callback)
 cv2.createTrackbar('high1', 'processed', 0, 255, empty_callback)
@@ -68,6 +74,7 @@ while True:
     # proccesed = cv.adaptiveThreshold(proccesed,255,cv.ADAPTIVE_THRESH_MEAN_C,\
     #          cv.THRESH_BINARY_INV,low*2+1,high)
     shape=proccesed.shape
+    print(shape)
     img_center=[shape[0]/2,shape[1]/2]
     frame=0.06
     proccesed= cv2.bilateralFilter(proccesed, 13, 70, 70) 
@@ -266,14 +273,53 @@ while True:
                 # add it to our mask
                 if numPixels > lower and numPixels < upper:
                     letters = cv2.add(letters, labelMask)
-                cnts, _ = cv2.findContours(letters.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                cnts = sorted(cnts, key = cv2.contourArea, reverse = True)[:7]
-                boundingBoxes = [cv2.boundingRect(c) for c in cnts]
-                for box in boundingBoxes:
-                    x,y,w,h = box
-                    ratio=w/h
-                    if ratio>0.1 and ratio<0.9:
-                        cv2.rectangle(result, (x, y), (x + w, y + h), (255,0,0), 4)
+            cnts, _ = cv2.findContours(letters.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cnts = sorted(cnts, key = cv2.contourArea, reverse = True)[:7]
+            boundingBoxes = [cv2.boundingRect(c) for c in cnts]
+            boundingBoxes=sorted(boundingBoxes,key= lambda x:x[0])
+            letter_list=[]
+            for box in boundingBoxes:
+                x,y,w,h = box
+                ratio=w/h
+                if ratio>0.1 and ratio<0.9:
+                    cv2.rectangle(result, (x, y), (x + w, y + h), (255,0,0), 4)
+                    letter_list.append(letters[y:y+h,x:x+w])
+            #TM_SQDIFF_NORMED
+            plate_number=""
+            #cv2.imshow('temp',templates[0][1])
+            #print(len(letter_list))
+            #letter_clasification(letter_list[low1],low2,low3,high1)
+            for letter in letter_list:
+                best_result=0
+                best_id=0
+                results=[]
+                #input=255-letter
+                # cv.imshow('in',input)
+                # cv.waitKey(10)
+                for i,template in enumerate(templates):
+                    temp=255-template[1][10:-20,:]
+                    input = cv.resize(letter, (temp.shape[1],temp.shape[0]), interpolation = cv.INTER_AREA)
+                    # print('in',input.shape)
+                    # print('temp',temp.shape)
+                    # cv.imshow('temp',temp)
+                    # cv.imshow('in',input)
+                    # cv.waitKey(100)
+                    #cv.imshow('in',input)
+                    #cv.waitKey(10)
+                    #print(temp.shape)
+                    #print(letter.shape)
+                    res = cv.matchTemplate(input,temp,cv.TM_CCOEFF_NORMED)
+                    #print(res)
+                    #results.append(res)
+                    results.append((res[0][0],template[0]))
+                    #print(res[0])
+                    if max(res[0])>best_result:
+                        best_result=max(res[0])
+                        best_id=i
+                results=sorted(results,key=lambda x:x[0],reverse=True)[:6]
+                #print(results)
+                plate_number=plate_number+templates[best_id][0]
+            #print(plate_number)
             cv2.imshow('gray_res',letters)
             cv2.imshow('res',result)
 
